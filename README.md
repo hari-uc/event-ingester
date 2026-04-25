@@ -4,6 +4,14 @@ A small service for ingesting payment lifecycle events, retrieving transactions,
 
 Built with **Bun + TypeScript**, **Express**, **Postgres**, and **AWS SQS (FIFO)**.
 
+## Live deployment
+
+Hosted on AWS EC2.
+
+- Base URL: **http://3.109.80.118:8000**
+- Dashboard: http://3.109.80.118:8000
+- Health:    http://3.109.80.118:8000/health
+
 ## Flow
 
 ```
@@ -87,6 +95,16 @@ scripts/     seed merchants, push sample events
 public/      dashboard (html/css/js)
 ```
 
+## Postman
+
+A Postman collection with test assertions is included at the repo root:
+
+```
+event-ingester.postman_collection.json
+```
+
+Import it into Postman, set the `baseUrl` collection variable to `http://3.109.80.118:8000` (or `http://localhost:8000` for local), and run via the Collection Runner. Tests cover ingest (single, batch, idempotent duplicate, invalid), transactions list/detail/filters, reconciliation summary across all `group_by` modes, and discrepancies.
+
 ## AI Tools Usage:
-- Claude Code - used for md file generation, web dashboard, optimization suggestions, and refactoring.
+- Claude Code - used for md file generation, web dashboard (built entirely with AI), optimization suggestions, and refactoring.
 
