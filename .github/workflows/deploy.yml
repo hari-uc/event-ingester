@@ -18,6 +18,8 @@ jobs:
           port: ${{ secrets.EC2_PORT || 22 }}
           script: |
             set -e
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             export PATH="$HOME/.bun/bin:$PATH"
 
             cd ~/event-ingester
