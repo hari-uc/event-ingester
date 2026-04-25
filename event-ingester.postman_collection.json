@@ -1,0 +1,452 @@
+{
+  "info": {
+    "name": "Event Ingester",
+    "description": "",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://3.109.80.118:8000", "type": "string" },
+    { "key": "merchantId", "value": "merchant_1", "type": "string" },
+    { "key": "transactionId", "value": "", "type": "string" },
+    { "key": "eventId", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function uuid() {",
+          "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {",
+          "    const r = Math.random() * 16 | 0;",
+          "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+          "    return v.toString(16);",
+          "  });",
+          "}",
+          "if (!pm.collectionVariables.get('transactionId')) {",
+          "  pm.collectionVariables.set('transactionId', uuid());",
+          "}",
+          "pm.collectionVariables.set('newEventId', uuid());"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('status field is ok', () => pm.expect(body.status).to.eql('ok'));",
+              "pm.test('db field is ok', () => pm.expect(body.db).to.eql('ok'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Ingest single event (initiated)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/events", "host": ["{{baseUrl}}"], "path": ["api", "events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"{{newEventId}}\",\n  \"event_type\": \"payment_initiated\",\n  \"transaction_id\": \"{{transactionId}}\",\n  \"merchant_id\": \"{{merchantId}}\",\n  \"merchant_name\": \"Acme Corp\",\n  \"amount\": 1250.50,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-25T10:00:00Z\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns accepted count', () => pm.expect(body.accepted).to.be.a('number'));",
+                  "pm.test('accepted == 1', () => pm.expect(body.accepted).to.eql(1));",
+                  "pm.collectionVariables.set('eventId', pm.collectionVariables.get('newEventId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingest duplicate (idempotency)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/events", "host": ["{{baseUrl}}"], "path": ["api", "events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"{{eventId}}\",\n  \"event_type\": \"payment_initiated\",\n  \"transaction_id\": \"{{transactionId}}\",\n  \"merchant_id\": \"{{merchantId}}\",\n  \"amount\": 1250.50,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-25T10:00:00Z\"\n}"
+            },
+            "description": "Same event_id as the previous request — SQS dedup + DB ON CONFLICT must absorb it. API still returns 202."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 202', () => pm.response.to.have.status(202));",
+                  "pm.test('still acknowledges', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingest batch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/events", "host": ["{{baseUrl}}"], "path": ["api", "events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"event_id\": \"{{newEventId}}\",\n    \"event_type\": \"payment_processed\",\n    \"transaction_id\": \"{{transactionId}}\",\n    \"merchant_id\": \"{{merchantId}}\",\n    \"amount\": 1250.50,\n    \"currency\": \"INR\",\n    \"timestamp\": \"2026-04-25T10:01:00Z\"\n  },\n  {\n    \"event_id\": \"{{$guid}}\",\n    \"event_type\": \"settled\",\n    \"transaction_id\": \"{{transactionId}}\",\n    \"merchant_id\": \"{{merchantId}}\",\n    \"amount\": 1250.50,\n    \"currency\": \"INR\",\n    \"timestamp\": \"2026-04-25T10:05:00Z\"\n  }\n]"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 202', () => pm.response.to.have.status(202));",
+                  "pm.test('batch accepted', () => pm.expect(pm.response.json().accepted).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingest invalid (missing event_id)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/events", "host": ["{{baseUrl}}"], "path": ["api", "events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"{{transactionId}}\",\n  \"merchant_id\": \"{{merchantId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejects with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error body present', () => pm.expect(pm.response.json()).to.have.property('error'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "List transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?limit=20&offset=0&sort_by=updated_at&order=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "offset", "value": "0" },
+                { "key": "sort_by", "value": "updated_at" },
+                { "key": "order", "value": "desc" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('has items array', () => pm.expect(body.items).to.be.an('array'));",
+                  "pm.test('has total count', () => pm.expect(body.total).to.be.a('number'));",
+                  "pm.test('respects limit', () => pm.expect(body.items.length).to.be.at.most(20));",
+                  "if (body.items.length) {",
+                  "  pm.collectionVariables.set('listedTxnId', body.items[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List by merchant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?merchant_id={{merchantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [{ "key": "merchant_id", "value": "{{merchantId}}" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('all rows match merchant_id', () => {",
+                  "  body.items.forEach(r => pm.expect(r.merchant_id).to.eql(pm.collectionVariables.get('merchantId')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List by payment_status=failed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?payment_status=failed",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [{ "key": "payment_status", "value": "failed" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('every row has payment_status=failed', () => {",
+                  "  body.items.forEach(r => pm.expect(r.payment_status).to.eql('failed'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get transaction by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "{{transactionId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('id matches', () => pm.expect(body.id).to.eql(pm.collectionVariables.get('transactionId')));",
+                  "pm.test('events array present', () => pm.expect(body.events).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get unknown transaction (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/00000000-0000-4000-8000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "00000000-0000-4000-8000-000000000000"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation",
+      "item": [
+        {
+          "name": "Summary by merchant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/summary?group_by=merchant",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reconciliation", "summary"],
+              "query": [{ "key": "group_by", "value": "merchant" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('rows array present', () => pm.expect(body.rows || body).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Summary by date",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/summary?group_by=date",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reconciliation", "summary"],
+              "query": [{ "key": "group_by", "value": "date" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Summary by status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/summary?group_by=status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reconciliation", "summary"],
+              "query": [{ "key": "group_by", "value": "status" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Discrepancies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/discrepancies?limit=20&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reconciliation", "discrepancies"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "offset", "value": "0" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('items array', () => pm.expect(body.items).to.be.an('array'));",
+                  "pm.test('every item has reasons', () => {",
+                  "  body.items.forEach(r => {",
+                  "    pm.expect(r.reasons).to.be.an('array');",
+                  "    pm.expect(r.reasons.length).to.be.greaterThan(0);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Discrepancies filtered by merchant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/discrepancies?merchant_id={{merchantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reconciliation", "discrepancies"],
+              "query": [{ "key": "merchant_id", "value": "{{merchantId}}" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('all rows match merchant', () => {",
+                  "  body.items.forEach(r => pm.expect(r.merchant_id).to.eql(pm.collectionVariables.get('merchantId')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
