@@ -20,7 +20,7 @@ jobs:
             set -e
             export PATH="$HOME/.bun/bin:$PATH"
 
-            cd ~/apps/event-ingester
+            cd ~/event-ingester
 
             git fetch --all
             git reset --hard origin/master
